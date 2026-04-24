@@ -1,4 +1,19 @@
+# secrets / local config
 .env
+.env.*
+!.env.example
+
+# python
 __pycache__/
 *.pyc
+*.pyo
 .venv/
+venv/
+
+# editors
+.vscode/
+.idea/
+
+# os
+.DS_Store
+Thumbs.db
