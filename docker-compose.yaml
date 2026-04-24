@@ -1,0 +1,22 @@
+services:
+  mazak-bridge:
+    build: .
+    container_name: mazak-bridge
+    restart: unless-stopped
+    environment:
+      AGENT_URL: "${AGENT_URL}"
+      MQTT_HOST: "${MQTT_HOST}"
+      MQTT_USER: "${MQTT_USER}"
+      MQTT_PASS: "${MQTT_PASS}"
+      SITE: "${SITE}"
+      DEVICE_ID: "${DEVICE_ID}"
+      POLL_INTERVAL_SEC: "${POLL_INTERVAL_SEC:-2}"
+      TELEMETRY_INTERVAL_SEC: "${TELEMETRY_INTERVAL_SEC:-1800}"
+      HEARTBEAT_INTERVAL_SEC: "${HEARTBEAT_INTERVAL_SEC:-30}"
+      TZ: "${TZ:-Europe/London}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('${AGENT_URL}/probe', timeout=3).raise_for_status()"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
