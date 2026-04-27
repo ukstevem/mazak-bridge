@@ -22,7 +22,8 @@ SUPABASE_KEY = os.environ.get("SECRET_KEY", "")
 PERSIST_ENABLED = bool(SUPABASE_URL and SUPABASE_KEY)
 
 POLL_INTERVAL_SEC      = int(os.environ.get("POLL_INTERVAL_SEC", "2"))
-TELEMETRY_INTERVAL_SEC = int(os.environ.get("TELEMETRY_INTERVAL_SEC", "1800"))
+# Telemetry only emitted while execution is ACTIVE — dense data during cuts, none while idle.
+TELEMETRY_INTERVAL_SEC = int(os.environ.get("TELEMETRY_INTERVAL_SEC", "10"))
 HEARTBEAT_INTERVAL_SEC = int(os.environ.get("HEARTBEAT_INTERVAL_SEC", "30"))
 
 TOPIC_ROOT      = f"{SITE}/mazak"
@@ -224,7 +225,7 @@ def main():
                     log.info(f"program done: {done['program']} runtime={done['runtime_seconds']}s parts_end={done['part_count_end']}")
 
             now = time.time()
-            if now - last_telemetry >= TELEMETRY_INTERVAL_SEC:
+            if curr.get("execution") == "ACTIVE" and now - last_telemetry >= TELEMETRY_INTERVAL_SEC:
                 snap = telemetry_payload(curr)
                 publish(client, TOPIC_TELEMETRY, snap)
                 last_telemetry = now
