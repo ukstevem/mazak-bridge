@@ -16,6 +16,11 @@ MQTT_PASS = os.environ.get("MQTT_PASS", "letmein")
 SITE      = os.environ.get("SITE", "foxwood")
 DEVICE_ID = os.environ.get("DEVICE_ID", "MAZAK-SN328525")
 
+# Optional Supabase persistence. If unset, bridge runs publish-only.
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+SUPABASE_KEY = os.environ.get("SECRET_KEY", "")
+PERSIST_ENABLED = bool(SUPABASE_URL and SUPABASE_KEY)
+
 POLL_INTERVAL_SEC      = int(os.environ.get("POLL_INTERVAL_SEC", "2"))
 TELEMETRY_INTERVAL_SEC = int(os.environ.get("TELEMETRY_INTERVAL_SEC", "1800"))
 HEARTBEAT_INTERVAL_SEC = int(os.environ.get("HEARTBEAT_INTERVAL_SEC", "30"))
@@ -136,14 +141,57 @@ def publish(client, topic, payload, retain=False, qos=1):
     client.publish(topic, payload, qos=qos, retain=retain)
 
 
+# Topic -> Supabase table for persistence
+PERSIST_ROUTES = {
+    TOPIC_PROGRAM:   "pss_laser_program_runs",
+    TOPIC_STATE:     "pss_laser_state_events",
+    TOPIC_TELEMETRY: "pss_laser_telemetry",
+}
+
+
+def supabase_insert(table: str, row: dict):
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+    }
+    r = requests.post(url, headers=headers, data=json.dumps(row), timeout=10)
+    r.raise_for_status()
+
+
+def on_connect(client, userdata, flags, rc, properties=None):
+    log.info(f"mqtt connect rc={rc}")
+    if not PERSIST_ENABLED:
+        return
+    for topic in PERSIST_ROUTES:
+        client.subscribe(topic, qos=1)
+        log.info(f"subscribed for persistence: {topic}")
+
+
+def on_message(client, userdata, msg):
+    table = PERSIST_ROUTES.get(msg.topic)
+    if not table:
+        return
+    raw = msg.payload.decode("utf-8", errors="replace")
+    try:
+        row = json.loads(raw)
+        supabase_insert(table, row)
+    except Exception as e:
+        log.error(f"persist ERR table={table} topic={msg.topic} err={e} sample={raw[:200]}")
+
+
 def main():
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,
                          client_id=f"mazak-bridge-{DEVICE_ID}")
     client.username_pw_set(MQTT_USER, MQTT_PASS)
     client.will_set(TOPIC_STATUS, payload="offline", qos=1, retain=True)
     client.reconnect_delay_set(min_delay=1, max_delay=60)
+    client.on_connect = on_connect
+    client.on_message = on_message
 
-    log.info(f"connecting mqtt {MQTT_HOST}:{MQTT_PORT}")
+    log.info(f"persist={'ON' if PERSIST_ENABLED else 'OFF'} connecting mqtt {MQTT_HOST}:{MQTT_PORT}")
     client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
     client.loop_start()
     publish(client, TOPIC_STATUS, "online", retain=True, qos=1)
